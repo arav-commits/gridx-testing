@@ -1,29 +1,9 @@
-# main.py  ←  PURE TERMINAL DEMO
+# main.py
 
-from price_data import DATA, compute_price_by_index, get_dataset_length
-import time
+from price_data import compute_price_by_index, DATA
 
-print("🚀 Dynamic Pricing Console Demo Started")
-print("→ New price every 10 seconds")
-print("→ Full 48 time slots cycling")
-print("→ Press Ctrl + C to stop\n")
-print("=" * 70)
+print("🚀 Debug Mode\n")
 
-index = 0
-total_slots = get_dataset_length()
-
-while True:
-    row = DATA[index]
-    price = compute_price_by_index(index)
-
-    if row["supply"] > row["demand"]:
-        status = "SURPLUS ✅ (cheaper now)"
-    elif row["demand"] > row["supply"]:
-        status = "SHORTAGE ⚠️  (reduce usage)"
-    else:
-        status = "BALANCED"
-
-    print(f"Time: {row['time']:>8}  |  Price: ₹{price:.2f}  |  {status}")
-
-    index = (index + 1) % total_slots
-    time.sleep(10)
+for i in range(len(DATA)):
+    price = compute_price_by_index(i)
+    print(DATA[i]["time"], "→ ₹", price)

@@ -1,4 +1,4 @@
-# price_data.py  ←  FULL CLEAN VERSION (48 rows from dataset3.pdf)
+# price_data.py
 
 import math
 
@@ -55,26 +55,21 @@ DATA = [
     {"time": "11:30 PM", "demand": 10.6, "supply": 8.2, "pbase": 5.73},
 ]
 
-# Data validation
-for _i, _row in enumerate(DATA):
-    for _key in ("demand", "supply", "pbase"):
-        _val = _row[_key]
-        if not isinstance(_val, (int, float)) or math.isnan(_val) or math.isinf(_val):
-            raise ValueError(f"Invalid DATA[{_i}]['{_key}'] = {_val!r}")
 
 def get_dataset_length():
     return len(DATA)
 
+
 def compute_price_by_index(index: int):
-    if not 0 <= index < len(DATA):
-        raise ValueError(f"Out-of-bounds index {index}")
     row = DATA[index]
     d = row["demand"]
     s = row["supply"]
     pb = row["pbase"]
+
     if s == 0:
         return pb
+
     dynamic_impact = d / s
-    price = pb + dynamic_impact + 0.50
-    price = min(max(price, 0.0), MAX_PRICE)
-    return round(price, 2)
+    price = pb + dynamic_impact + 0.5
+
+    return round(min(max(price, 0.0), MAX_PRICE), 2)
