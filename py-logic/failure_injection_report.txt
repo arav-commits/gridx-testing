@@ -1,0 +1,322 @@
+==============================================================================
+  GRIDX FAILURE-INJECTION TEST SUITE -- FULL REPORT
+  Generated: 2026-04-18 15:34:40
+==============================================================================
+
+------------------------------------------------------------------------------
+  Finding #01  [CRITICAL]  Phase 2 - Auth check (static)
+------------------------------------------------------------------------------
+  Failure Type   : Code inspection for authentication headers
+  Method         : grep main.py for API key / Bearer / Authorization
+  Observed       : No authentication on any endpoint
+  Classification : Missing Security Control
+  Root Cause     : All endpoints are publicly accessible with no credentials required
+  Severity       : Critical
+  Fix            : Add FastAPI APIKeyHeader dependency to /price and write/mutate endpoints
+
+------------------------------------------------------------------------------
+  Finding #02  [CRITICAL]  Phase 3a - Field Rename
+------------------------------------------------------------------------------
+  Failure Type   : Renamed 'price' -> 'current_price' in GET /price response
+  Method         : Patched main.py return dict, restarted server
+  Observed       : Frontend receives 'current_price' but consumes 'price'; NextPricePanel renders undefined
+  Classification : Schema Contract Failure
+  Root Cause     : No shared schema/type enforced between Python backend and TS frontend; field rename silently breaks UI
+  Severity       : Critical
+  Fix            : Define a Pydantic response model in FastAPI; generate TypeScript types from OpenAPI spec (e.g. openapi-generator)
+
+------------------------------------------------------------------------------
+  Finding #03  [CRITICAL]  Phase 5c - Dual Index Divergence
+------------------------------------------------------------------------------
+  Failure Type   : Comparing frontend clock-based index vs backend sequential counter
+  Method         : Static analysis: page.tsx getCurrentBlockIndex() vs main.py state['index']
+  Observed       : Frontend computes price based on wall-clock 30-min block (IST); backend computes price based on sequential state['index'] counter; after any restart, backend resets to index=0 (7:00 AM data) regardless of time
+  Classification : State Inconsistency / Incorrect Price
+  Root Cause     : Two entirely independent indexing mechanisms exist; frontend may show Rs.10.19 (7AM price) while backend (if restarted) shows the same until the first scheduled job runs
+  Severity       : Critical
+  Fix            : Eliminate the sequential backend counter; instead, derive index from IST clock time in update_price(): index = (now.hour*60+now.minute)//30 % len(DATA)
+
+------------------------------------------------------------------------------
+  Finding #04  [CRITICAL]  Phase 6 - nan_pbase
+------------------------------------------------------------------------------
+  Failure Type   : Injected {"time": "Test", "demand": 5.0,  "supply": 5.0,  "pbase": float("nan")} into compute_price_by_index
+  Method         : Python eval of synthetic DATA row, direct arithmetic validation
+  Observed       : price=nan; NaN propagates through arithmetic; price=nan; JSON serialisation may crash
+  Classification : NaN Propagation -> JSON serialisation crash
+  Root Cause     : compute_price_by_index has no input validation or output clamping
+  Severity       : Critical
+  Fix            : Validate all DATA rows at startup; reject NaN/Inf in compute_price_by_index
+
+------------------------------------------------------------------------------
+  Finding #05  [CRITICAL]  Phase 6 - inf_pbase
+------------------------------------------------------------------------------
+  Failure Type   : Injected {"time": "Test", "demand": 5.0,  "supply": 5.0,  "pbase": float("inf")} into compute_price_by_index
+  Method         : Python eval of synthetic DATA row, direct arithmetic validation
+  Observed       : price=inf; Infinity propagates; JSON serialisation raises ValueError in stdlib json
+  Classification : Infinity -> JSON ValueError crash
+  Root Cause     : compute_price_by_index has no input validation or output clamping
+  Severity       : Critical
+  Fix            : Cap supply to min=0.01; reject Inf/NaN before returning; use Pydantic validators
+
+------------------------------------------------------------------------------
+  Finding #06  [CRITICAL]  Phase 6 - OOB Index
+------------------------------------------------------------------------------
+  Failure Type   : Called compute_price_by_index(35) where len(DATA)==35
+  Method         : Direct Python call with index=length
+  Observed       : IndexError raised as expected, but NOT caught in update_price(). This crash propagates to the scheduler thread -> scheduler may halt.
+  Classification : Unhandled Exception / Scheduler Halt
+  Root Cause     : update_price() calls compute_price_by_index(index) after state['index'] is updated; off-by-one or concurrent write could pass an out-of-range index
+  Severity       : Critical
+  Fix            : Wrap update_price() body in try/except; catch IndexError and log; add bounds validation in compute_price_by_index
+
+------------------------------------------------------------------------------
+  Finding #07  [CRITICAL]  Phase 6c - Corrupted State (live)
+------------------------------------------------------------------------------
+  Failure Type   : Initialised state dict with invalid types and OOB index
+  Method         : Patched main.py state dict, restarted, GET /price
+  Observed       : Server returned 500 -- state corruption causes crash on first access
+  Classification : Crash on Startup / Corrupted State
+  Root Cause     : No state schema validation; DATA[999] raises IndexError, None arithmetic raises TypeError
+  Severity       : Critical
+  Fix            : Use a Pydantic BaseModel for application state; validate state at startup; add startup health check
+
+------------------------------------------------------------------------------
+  Finding #08  [CRITICAL]  Phase 9a - Hardcoded Supabase Credentials
+------------------------------------------------------------------------------
+  Failure Type   : Supabase URL and anon key hardcoded in supabaseClient.ts
+  Method         : Read src/lib/supabaseClient.ts; check for literal URL and JWT key
+  Observed       : supabaseUrl and supabaseAnonKey are hardcoded string literals; visible in source, Git history, and any bundle
+  Classification : Secret Leakage
+  Root Cause     : Credentials committed to source control; anyone with repo access can read Supabase project, query data, or abuse RPC
+  Severity       : Critical
+  Fix            : Move to NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY env vars; add supabaseClient.ts pattern to .gitignore or use .env.local which is already gitignored
+
+------------------------------------------------------------------------------
+  Finding #09  [CRITICAL]  Phase 9b - Hardcoded ngrok URL
+------------------------------------------------------------------------------
+  Failure Type   : BASE_URL in api.ts points to a dynamic ngrok tunnel
+  Method         : Read src/lib/api.ts; check BASE_URL value
+  Observed       : BASE_URL='https://sift-stank-chair.ngrok-free.dev' is hardcoded; ngrok tunnels expire and rotate; any deployment without refreshing this URL will silently fail (all /price requests return network errors)
+  Classification : Deployment Misconfiguration / Silent Failure
+  Root Cause     : ngrok free-tier URLs are ephemeral and non-deterministic; hardcoding them makes deployments fragile
+  Severity       : Critical
+  Fix            : Move to NEXT_PUBLIC_API_BASE_URL env var; use a stable domain for production; add a startup check: if BASE_URL unreachable, show maintenance banner
+
+------------------------------------------------------------------------------
+  Finding #10  [HIGH]  Phase 1 - Status domain
+------------------------------------------------------------------------------
+  Failure Type   : Enum value check
+  Method         : GET /price, inspect 'status' field value
+  Observed       : status='neutral' is not in valid domain
+  Classification : Inconsistency
+  Root Cause     : Backend uses different enum labels than frontend expects
+  Severity       : High
+  Fix            : Align status values: Python should emit 'surplus'|'shortage'|'balanced'
+
+------------------------------------------------------------------------------
+  Finding #11  [HIGH]  Phase 3b - Null Price
+------------------------------------------------------------------------------
+  Failure Type   : Injected None/null into 'price' field
+  Method         : Patched main.py to return price=None, restarted
+  Observed       : Frontend receives price=null; renders Rs.null in UI; math operations (trend calc) throw TypeError
+  Classification : Data Corruption / UI Breakage
+  Root Cause     : No output validation -- backend can emit nulls with no error
+  Severity       : High
+  Fix            : Add Pydantic model with price: float (non-optional); add frontend null-guard before rendering price
+
+------------------------------------------------------------------------------
+  Finding #12  [HIGH]  Phase 4b - Delayed Scheduler Job
+------------------------------------------------------------------------------
+  Failure Type   : Injected 6-second sleep into update_price() (interval=5s)
+  Method         : Patched update_price to sleep 6s; sampled /price before & after 7s wait
+  Observed       : State did not update after 7 seconds -- scheduler job blocked; price stays stale for extended period
+  Classification : Scheduler Stall / Stale Data
+  Root Cause     : APScheduler BackgroundScheduler uses a ThreadPool; when the job takes longer than its interval, subsequent fires are coalesced or dropped (misfire_grace_time default behaviour)
+  Severity       : High
+  Fix            : Set misfire_grace_time=1s on the job; add job execution monitoring/alerting; move long ops out of the job body
+
+------------------------------------------------------------------------------
+  Finding #13  [HIGH]  Phase 4c - No Health/Scheduler Endpoint
+------------------------------------------------------------------------------
+  Failure Type   : Static inspection for /health or /scheduler-status route
+  Method         : grep main.py for '/health', '/scheduler'
+  Observed       : No health or scheduler-status endpoint exists
+  Classification : Observability Gap
+  Root Cause     : Cannot monitor whether the scheduler is alive, how many jobs fired, or detect job failures without access to server logs
+  Severity       : High
+  Fix            : Add GET /health that returns scheduler.running, job.next_run_time, last update timestamp, and current state
+
+------------------------------------------------------------------------------
+  Finding #14  [HIGH]  Phase 5a - Naive datetime.now()
+------------------------------------------------------------------------------
+  Failure Type   : Static check: backend uses timezone-naive datetime
+  Method         : Inspect main.py for datetime.now() without tzinfo
+  Observed       : Backend uses datetime.now() (server-local time) for last_updated; if server is UTC, displayed time will be 5:30h behind IST frontend
+  Classification : Clock Drift / UI Inconsistency
+  Root Cause     : Python datetime.now() returns local server time with no timezone; frontend parses and displays it assuming IST, causing a 5:30h mismatch
+  Severity       : High
+  Fix            : Replace datetime.now() with datetime.now(tz=timezone(timedelta(hours=5, minutes=30))).strftime('%H:%M') in main.py; import timezone, timedelta from datetime
+
+------------------------------------------------------------------------------
+  Finding #15  [HIGH]  Phase 6 - extreme_demand
+------------------------------------------------------------------------------
+  Failure Type   : Injected {"time": "Test", "demand": 1e9,  "supply": 1.0,  "pbase": 1.0} into compute_price_by_index
+  Method         : Python eval of synthetic DATA row, direct arithmetic validation
+  Observed       : price=1000000001.5; price = 1 + 1e9 + 0.5 ~= 1,000,000,001.5; no upper cap check
+  Classification : Runaway Price (no upper cap)
+  Root Cause     : compute_price_by_index has no input validation or output clamping
+  Severity       : High
+  Fix            : Add MAX_PRICE = 15.0 cap; alert if price exceeds threshold
+
+------------------------------------------------------------------------------
+  Finding #16  [HIGH]  Phase 7 - Race Condition (live)
+------------------------------------------------------------------------------
+  Failure Type   : Widened scheduler-state write window to 150ms; 200 concurrent reads
+  Method         : Patched multi-step state write with sleep; 50 threads ? 4 requests
+  Observed       : No inconsistency detected -- GIL shielded state but race window exists
+  Classification : Latent Race (GIL-protected)
+  Root Cause     : CPython GIL prevented observed corruption but the pattern is unsafe on PyPy, sub-interpreters, or async uvicorn with multiple workers
+  Severity       : High
+  Fix            : Add threading.Lock() regardless; use atomic state.update(); never rely on GIL for correctness
+
+------------------------------------------------------------------------------
+  Finding #17  [HIGH]  Phase 9c - Wildcard CORS
+------------------------------------------------------------------------------
+  Failure Type   : CORSMiddleware configured with allow_origins=['*']
+  Method         : grep main.py for allow_origins
+  Observed       : Any origin can call the FastAPI backend; a malicious site can make credentialed cross-origin requests
+  Classification : Security Misconfiguration
+  Root Cause     : allow_origins=['*'] with allow_credentials=True is forbidden by browsers AND a security risk; credentials (cookies, auth headers) can be smuggled
+  Severity       : High
+  Fix            : Set allow_origins to explicit list: ['https://your-domain.com']; remove allow_credentials=True unless required; note: allow_credentials=True + allow_origins=['*'] is an invalid CORS combo
+
+------------------------------------------------------------------------------
+  Finding #18  [HIGH]  Phase 10 - Combined Chaos (live)
+------------------------------------------------------------------------------
+  Failure Type   : 100 threads ? 10 requests + scheduler at 500ms interval
+  Method         : ThreadPoolExecutor(100), chaos_worker(), patched scheduler interval
+  Observed       : System survived: 0 errors, 0 inconsistencies, p95=87ms
+  Classification : Resilient under GIL
+  Root Cause     : CPython GIL prevented observed failures but latent race condition vulnerabilities remain for multi-worker deployments
+  Severity       : High
+  Fix            : Add threading.Lock(), rate limiting, and health endpoint regardless
+
+------------------------------------------------------------------------------
+  Finding #19  [MEDIUM]  Phase 2 - Latency @ 200 workers
+------------------------------------------------------------------------------
+  Failure Type   : 1000 concurrent GET /price requests
+  Method         : ThreadPoolExecutor(200), 5 req each
+  Observed       : p95=157ms (>98ms threshold)
+  Classification : Latency Spike
+  Root Cause     : No connection pooling or async concurrency; uvicorn threads saturate
+  Severity       : Medium
+  Fix            : Switch to async endpoint; add --workers flag to uvicorn in production
+
+------------------------------------------------------------------------------
+  Finding #20  [MEDIUM]  Phase 5b - Dataset Time Gap
+------------------------------------------------------------------------------
+  Failure Type   : Static: PRICING_DATA starts at 7:00 AM and ends at 12:00 AM
+  Method         : Inspect pricing.py DATA list time coverage
+  Observed       : No data for 12:30 AM - 6:30 AM (6-hour window); frontend pricing.ts falls back to last row (12:00 AM) for any time in this gap
+  Classification : Stale Data / Wrong Price
+  Root Cause     : Dataset is incomplete; fallback logic silently returns midnight price at any hour between 12:30 AM and 6:59 AM
+  Severity       : Medium
+  Fix            : Add early-morning rows OR clearly document the off-hours fallback; at minimum emit a 'off_peak_hours' status flag for these intervals
+
+------------------------------------------------------------------------------
+  Finding #21  [MEDIUM]  Phase 9b.2 - No Env Var for API URL
+------------------------------------------------------------------------------
+  Failure Type   : api.ts BASE_URL is a literal string, not an env var
+  Method         : Inspect src/lib/api.ts for process.env / NEXT_PUBLIC_
+  Observed       : Changing the backend URL requires a code edit and redeploy, not just an env var change
+  Classification : Configuration Rigidity
+  Root Cause     : Deployment environments (dev/staging/prod) cannot be differentiated without code changes
+  Severity       : Medium
+  Fix            : const BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL ?? 'http://localhost:8000';
+
+------------------------------------------------------------------------------
+  Finding #22  [MEDIUM]  Phase 9d - No .env.example
+------------------------------------------------------------------------------
+  Failure Type   : Check for .env.example or .env.local at repo root
+  Method         : os.path.exists checks
+  Observed       : No .env.example found; new developers have no list of required env vars; deployment without correct env vars silently uses hardcoded fallbacks
+  Classification : Documentation Gap / Deployment Risk
+  Root Cause     : Required environment variables are undocumented; missed vars cause silent failures (hardcoded ngrok URL used instead)
+  Severity       : Medium
+  Fix            : Create .env.example with all required keys: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, NEXT_PUBLIC_PYTHON_API_URL
+
+------------------------------------------------------------------------------
+  Finding #23  [MEDIUM]  Phase 9e - No Python Config Management
+------------------------------------------------------------------------------
+  Failure Type   : Python backend has no env var / config file usage
+  Method         : grep main.py for os.environ, dotenv, config
+  Observed       : Python backend has no configurable settings; scheduler interval, port, and CORS origins are all hardcoded
+  Classification : Deployment Inflexibility
+  Root Cause     : Cannot change scheduler interval or security settings without editing source code
+  Severity       : Medium
+  Fix            : Add python-dotenv; load SCHEDULER_INTERVAL_SECONDS, ALLOWED_ORIGINS from environment; provide sensible defaults
+
+==============================================================================
+  SUMMARY
+==============================================================================
+  Total findings : 23
+  Critical       : 9
+  High           : 9
+  Medium         : 5
+  Low            : 0
+
+------------------------------------------------------------------------------
+  TOP 5 CRITICAL VULNERABILITIES
+------------------------------------------------------------------------------
+  1. [Critical] Phase 2 - Auth check (static) -- Missing Security Control
+     Fix: Add FastAPI APIKeyHeader dependency to /price and write/mutate endpoints
+  2. [Critical] Phase 3a - Field Rename -- Schema Contract Failure
+     Fix: Define a Pydantic response model in FastAPI; generate TypeScript types from OpenAPI spec (e.g. openapi-generator)
+  3. [Critical] Phase 5c - Dual Index Divergence -- State Inconsistency / Incorrect Price
+     Fix: Eliminate the sequential backend counter; instead, derive index from IST clock time in update_price(): index = (now.hour*60+now.minute)//30 % len(DATA)
+  4. [Critical] Phase 6 - nan_pbase -- NaN Propagation -> JSON serialisation crash
+     Fix: Validate all DATA rows at startup; reject NaN/Inf in compute_price_by_index
+  5. [Critical] Phase 6 - inf_pbase -- Infinity -> JSON ValueError crash
+     Fix: Cap supply to min=0.01; reject Inf/NaN before returning; use Pydantic validators
+
+------------------------------------------------------------------------------
+  ARCHITECTURAL RISKS DISCOVERED
+------------------------------------------------------------------------------
+  1. DUAL INDEXING SYSTEMS: Frontend uses clock-based index; backend uses sequential counter. These drift apart on every restart -> wrong prices shown.
+  2. SHARED MUTABLE STATE WITHOUT LOCK: `state` dict is written by scheduler thread and read by HTTP threads with no synchronisation -> data races.
+  3. HARDCODED SECRETS IN SOURCE: Supabase credentials in supabaseClient.ts; ngrok URL in api.ts -- both committed to git.
+  4. NO INPUT/OUTPUT VALIDATION: compute_price_by_index() has no Pydantic models, no bounds checks, no NaN/Inf guards -> silent corruption possible.
+  5. MISSING OBSERVABILITY: No /health endpoint, no scheduler heartbeat, no alerting -> failures are invisible until users report broken UI.
+
+------------------------------------------------------------------------------
+  PRIORITY FIXES
+------------------------------------------------------------------------------
+
+  ? Scheduler Stability
+    1. Wrap state dict with threading.Lock() in update_price() and get_price()
+       2. Derive index from IST clock, not sequential counter
+       3. Add try/except around entire update_price() body
+       4. Set misfire_grace_time=1 on the job
+       5. Add GET /health returning scheduler status + last_update + state
+
+  ? API Protection
+    1. Add FastAPI APIKeyHeader dependency on all write/critical endpoints
+       2. Replace allow_origins=['*'] with an explicit origin allowlist
+       3. Add SlowAPI rate limiter: @limiter.limit('200/minute') on /price
+       4. Add Pydantic response_model=PriceResponse to GET /price
+
+  ? Time Synchronisation
+    1. Replace datetime.now() -> datetime.now(tz=IST_ZONE).strftime('%H:%M')
+       2. Unify to a single IST-clock index: (h*60+m)//30 % 35
+       3. Add 'valid_from'/'valid_until' ISO-8601 timestamp fields to /price response
+       4. Fill the 12:30AM-6:30AM dataset gap or emit explicit off_hours flag
+
+  ? Secret Management
+    1. Move Supabase URL+key to .env.local (already gitignored)
+       2. Move ngrok/API URL to NEXT_PUBLIC_PYTHON_API_URL env var
+       3. Create .env.example with all keys documented
+       4. Run git-secrets or truffleHog pre-commit hook
+
+==============================================================================
+  END OF REPORT
+==============================================================================
