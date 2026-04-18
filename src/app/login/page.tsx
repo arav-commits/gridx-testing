@@ -92,11 +92,10 @@ export default function LoginPage() {
         const { error: upsertError } = await supabase.from('users').upsert({
           id: userSession.session.user.id,
           name: formData.name,
-          email: formData.email,
           phone: formData.phone,
           state: formData.state,
           city: formData.city,
-          cluster_id: foundCluster.id
+          cluster_id: parseInt(foundCluster.id.replace(/\D/g, ''), 10) || 1
         });
         if (upsertError) {
           console.error("[GridX] Failed to save user profile to Supabase:", upsertError);
