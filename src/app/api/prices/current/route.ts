@@ -38,6 +38,10 @@ export async function GET() {
     const currentPriceData = prices[0];
     const currentPrice = Number(currentPriceData.price);
 
+    // Check if data is stale (older than 45 minutes)
+    const dataTimeMs = new Date(currentPriceData.created_at).getTime();
+    const isStale = Date.now() - dataTimeMs > 45 * 60 * 1000;
+
     // Analyze trend (comparison between newest and previous)
     let isTrendRising = false;
     let trendLabel = "stable";
@@ -82,10 +86,19 @@ export async function GET() {
       statusLabel = "balanced"; generalMessage = "Moderate demand. Try to shift heavy loads.";
     }
 
+    if (isStale) {
+      generalMessage = "Data is delayed. " + generalMessage;
+      subtitle = "⚠ Waiting for real-time update...";
+    }
+
     // Format IST time from Supabase record
-    const timeString = new Date(currentPriceData.created_at).toLocaleTimeString('en-US', {
+    let timeString = new Date(currentPriceData.created_at).toLocaleTimeString('en-US', {
       hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
     });
+
+    if (isStale) {
+      timeString += " (Delayed)";
+    }
 
     return NextResponse.json({
       price: currentPrice,
