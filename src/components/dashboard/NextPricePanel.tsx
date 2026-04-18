@@ -7,45 +7,89 @@ import { getSecondsUntilNextInterval } from "@/utils/time";
 
 export function NextPricePanel() {
   const [timeLeft, setTimeLeft] = useState(0);
+  const [price, setPrice] = useState<number | null>(null);
+  const [status, setStatus] = useState<string>("Off-Peak");
+
+  // ⏱️ Timer logic (your existing code)
+ useEffect(() => {
+  const updateTime = () => {
+    setTimeLeft(getSecondsUntilNextInterval());
+  };
+
+  updateTime(); // initial sync
+
+  const interval = setInterval(updateTime, 1000);
+
+  return () => clearInterval(interval);
+}, []);
+
+  // 🌐 Fetch dynamic price from backend
+  const fetchPrice = async () => {
+    try {
+      const res = await fetch("http://127.0.0.1:8000/price");
+      const data = await res.json();
+
+      setPrice(data.value);
+
+      // Optional logic (you can refine this later)
+      if (data.value <= 4) setStatus("Off-Peak");
+      else setStatus("Peak");
+    } catch (err) {
+      console.error("Failed to fetch price:", err);
+    }
+  };
 
   useEffect(() => {
-    // Initial sync
-    setTimeLeft(getSecondsUntilNextInterval());
+  const loadPrice = async () => {
+    await fetchPrice();
+  };
 
-    const interval = setInterval(() => {
-      const next = getSecondsUntilNextInterval();
-      setTimeLeft(next);
-    }, 1000);
+  loadPrice();
 
-    return () => clearInterval(interval);
-  }, []);
+  const interval = setInterval(() => {
+    loadPrice();
+  }, 5000);
+
+  return () => clearInterval(interval);
+}, []);
 
   const formatTime = (seconds: number) => {
     const mm = Math.floor(seconds / 60);
     const ss = seconds % 60;
-    return `${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
+    return `${mm.toString().padStart(2, "0")}:${ss
+      .toString()
+      .padStart(2, "0")}`;
   };
 
   return (
     <GlassCard className="flex flex-col items-center justify-center px-10 text-center shrink-0 min-w-[240px] bg-[color:var(--card-bg)] transition-all duration-300">
+      
+      {/* Header */}
       <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
         <BsClockHistory />
         <span>Next Price Update</span>
       </div>
-      
+
+      {/* Timer */}
       <div className="text-5xl font-black font-display text-[color:var(--color-azure)] tracking-tight mb-3 tabular-nums">
         {formatTime(timeLeft)}
       </div>
-      
-      <div className="text-xs text-slate-400 font-medium mb-1">Current Rate</div>
+
+      {/* Price */}
+      <div className="text-xs text-slate-400 font-medium mb-1">
+        Current Rate
+      </div>
       <div className="flex items-baseline gap-1 mb-3">
-        <span className="text-3xl font-bold text-[color:var(--color-azure)]">₹3.80</span>
+        <span className="text-3xl font-bold text-[color:var(--color-azure)]">
+          ₹{price !== null ? price.toFixed(2) : "—"}
+        </span>
         <span className="text-sm font-medium text-slate-400">/kWh</span>
       </div>
-      
+
+      {/* Status */}
       <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 text-xs font-bold border border-emerald-100 dark:border-emerald-800/50">
         <BsArrowDown strokeWidth={1} />
-        <span>Off-Peak</span>
+        <span>{status}</span>
       </div>
     </GlassCard>
   );
