@@ -6,53 +6,113 @@ export const revalidate = 0;
 /**
  * GET /api/prices/history
  *
- * Returns today's price entries from dynamic_prices, ordered chronologically.
- * Used by the "View Deep Insights" timeline panel.
+ * Returns the FULL 48-slot daily timeline for "View Deep Insights".
+ * - Past slots → actual price from `price_logs`
+ * - Future slots → `pending: true` (rendered as "Coming Soon" in UI)
+ * - Always returns exactly 48 entries, regardless of how many DB rows exist.
  */
 export async function GET() {
   try {
-    // Compute start of today in UTC (IST midnight = UTC 18:30 previous day)
+    // ── Compute today's date in IST ───────────────────────────────────────
     const now = new Date();
-    const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30
-    const istNow = new Date(now.getTime() + istOffset);
-    const istMidnight = new Date(istNow);
-    istMidnight.setHours(0, 0, 0, 0);
-    const utcMidnight = new Date(istMidnight.getTime() - istOffset);
+    const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const year = istNow.getFullYear();
+    const month = String(istNow.getMonth() + 1).padStart(2, '0');
+    const day = String(istNow.getDate()).padStart(2, '0');
+    const todayIST = `${year}-${month}-${day}`; // e.g. "2026-04-19"
 
+    // Current slot index in IST
+    const currentSlotIndex = istNow.getHours() * 2 + (istNow.getMinutes() >= 30 ? 1 : 0);
+
+    // ── Fetch all rows for today from price_logs ──────────────────────────
     const { data: rows, error } = await supabase
-      .from('dynamic_prices')
-      .select('price, demand, supply, created_at')
-      .gte('created_at', utcMidnight.toISOString())
-      .order('created_at', { ascending: true });
+      .from('price_logs')
+      .select('slot_index, price, demand, supply')
+      .eq('slot_date', todayIST)
+      .order('slot_index', { ascending: true });
 
     if (error) {
-      console.error("Supabase history error:", error);
-      return NextResponse.json({ slots: [] }, { status: 200 });
+      console.error('Supabase history error:', error);
     }
 
-    // Transform rows into timeline slots with IST labels
-    const slots = (rows || []).map(row => {
-      const dt = new Date(row.created_at);
-      const istTime = new Date(dt.getTime() + istOffset);
-      const h = istTime.getUTCHours();
-      const m = istTime.getUTCMinutes();
-      const pad = (n: number) => String(n).padStart(2, '0');
-      const endM = m + 30;
-      const endH = endM >= 60 ? h + 1 : h;
-      const endMin = endM >= 60 ? 0 : endM;
+    // Build a lookup map: slot_index → row data
+    const slotMap = new Map<number, { price: number; demand: number; supply: number }>();
+    if (rows) {
+      for (const row of rows) {
+        slotMap.set(row.slot_index, {
+          price: Number(row.price),
+          demand: Number(row.demand),
+          supply: Number(row.supply),
+        });
+      }
+    }
 
-      return {
-        label: `${pad(h)}:${pad(m)}–${pad(endH % 24)}:${pad(endMin)}`,
-        price: Number(row.price),
-        demand: Number(row.demand),
-        supply: Number(row.supply),
-        created_at: row.created_at,
-      };
+    // ── Generate full 48-slot grid ────────────────────────────────────────
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const slots = [];
+
+    for (let i = 0; i < 48; i++) {
+      const startH = Math.floor(i / 2);
+      const startM = (i % 2) * 30;
+      const endH = Math.floor((i + 1) / 2);
+      const endM = ((i + 1) % 2) * 30;
+      const label = `${pad(startH)}:${pad(startM)}–${pad(endH % 24)}:${pad(endM)}`;
+
+      const dbRow = slotMap.get(i);
+      const isFuture = i > currentSlotIndex;
+
+      if (dbRow && !isFuture) {
+        // Past or current slot with data
+        slots.push({
+          label,
+          slotIndex: i,
+          price: dbRow.price,
+          demand: dbRow.demand,
+          supply: dbRow.supply,
+          pending: false,
+        });
+      } else if (!isFuture && dbRow) {
+        // Has data (backfilled) — show it
+        slots.push({
+          label,
+          slotIndex: i,
+          price: dbRow.price,
+          demand: dbRow.demand,
+          supply: dbRow.supply,
+          pending: false,
+        });
+      } else if (!isFuture && !dbRow) {
+        // Past slot but data missing (worker was down) — show as missing
+        slots.push({
+          label,
+          slotIndex: i,
+          price: null,
+          demand: null,
+          supply: null,
+          pending: false,
+          missing: true,
+        });
+      } else {
+        // Future slot — Coming Soon
+        slots.push({
+          label,
+          slotIndex: i,
+          price: null,
+          demand: null,
+          supply: null,
+          pending: true,
+        });
+      }
+    }
+
+    return NextResponse.json({
+      date: todayIST,
+      currentSlotIndex,
+      totalSlots: 48,
+      slots,
     });
-
-    return NextResponse.json({ slots });
-  } catch (err: any) {
-    console.error("History API error:", err);
-    return NextResponse.json({ slots: [] }, { status: 200 });
+  } catch (err: unknown) {
+    console.error('History API error:', err);
+    return NextResponse.json({ slots: [], date: null, currentSlotIndex: -1, totalSlots: 48 }, { status: 200 });
   }
 }

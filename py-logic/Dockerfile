@@ -1,15 +1,19 @@
-FROM python:3.12-slim
+FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
 # Install dependencies
-# We copy from the current directory context (which will be py-logic)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend logic
-COPY . .
+# Copy source code
+COPY price_data.py .
+COPY worker.py .
+COPY main.py .
 
-# Run the worker process with unbuffered output
+# The worker reads env vars at runtime. Pass them via:
+#   docker run -e NEXT_PUBLIC_SUPABASE_URL=... -e SUPABASE_SERVICE_ROLE_KEY=...
+# Or use a .env file:
+#   docker run --env-file ../.env.local ...
+
 CMD ["python", "-u", "worker.py"]

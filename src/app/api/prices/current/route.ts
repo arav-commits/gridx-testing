@@ -6,46 +6,56 @@ export const revalidate = 0; // Disable caching
 /**
  * GET /api/prices/current
  *
- * PURE READ — only for grid health, trend, and lights. 
- * The live displayed price is fetched from Python via Supabase.
+ * Returns the latest price from `price_logs` along with grid health,
+ * trend, and UI state for the dashboard panels.
  */
 export async function GET() {
   try {
+    // ── Compute today's date in IST ───────────────────────────────────────
+    const now = new Date();
+    const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const year = istNow.getFullYear();
+    const month = String(istNow.getMonth() + 1).padStart(2, '0');
+    const day = String(istNow.getDate()).padStart(2, '0');
+    const todayIST = `${year}-${month}-${day}`;
+
+    // ── Fetch latest 2 slots for today (for trend comparison) ─────────────
     const { data: prices, error } = await supabase
-      .from('dynamic_prices')
-      .select('*')
-      .order('created_at', { ascending: false })
+      .from('price_logs')
+      .select('slot_index, price, slot_time')
+      .eq('slot_date', todayIST)
+      .order('slot_index', { ascending: false })
       .limit(2);
 
     const fallbackData = {
       price: 0,
       time: "No data available",
       status: "balanced",
-      message: "API or DB error.",
+      message: "Awaiting price data from worker.",
       trend: "stable",
       ui: { gridStatusName: "Data Missing", zoneColor: "gray", demandLevel: "Unknown", subtitle: "Awaiting data..." }
     };
 
     if (error) {
       console.error("Supabase Error:", error);
-      return NextResponse.json(fallbackData, { status: 200 }); // Safe fallback
+      return NextResponse.json(fallbackData, { status: 200 });
     }
 
     if (!prices || prices.length === 0) {
-      return NextResponse.json(fallbackData, { status: 200 }); // Safe fallback
+      return NextResponse.json(fallbackData, { status: 200 });
     }
 
     const currentPriceData = prices[0];
     const currentPrice = Number(currentPriceData.price);
 
-    // Check if data is stale (older than 45 minutes)
-    const dataTimeMs = new Date(currentPriceData.created_at).getTime();
-    const isStale = Date.now() - dataTimeMs > 45 * 60 * 1000;
+    // Check if data is stale (slot_time older than 45 minutes from now)
+    const slotTimeMs = new Date(currentPriceData.slot_time).getTime();
+    const isStale = Date.now() - slotTimeMs > 45 * 60 * 1000;
 
-    // Analyze trend (comparison between newest and previous)
+    // Analyze trend (comparison between newest and previous slot)
     let isTrendRising = false;
     let trendLabel = "stable";
-    
+
     if (prices.length > 1) {
       const oldPrice = Number(prices[1].price);
       if (currentPrice > oldPrice) {
@@ -60,7 +70,7 @@ export async function GET() {
     let gridStatusName = "Grid Stable";
     let zoneColor = "green";
     let demandLevel = "Low Demand";
-    let subtitle = `Load ${isTrendRising ? '↑' : '↓'} ${Math.floor(Math.random() * 5 + 1)}% in last 30 min · Voltage stable`;
+    let subtitle = `Load ${isTrendRising ? '↑' : '↓'} in last 30 min · Voltage stable`;
 
     if (currentPrice >= 3 && currentPrice < 5) {
       gridStatusName = "Grid Stable"; zoneColor = "green"; demandLevel = "Low Demand";
@@ -91,8 +101,8 @@ export async function GET() {
       subtitle = "⚠ Waiting for real-time update...";
     }
 
-    // Format IST time from Supabase record
-    let timeString = new Date(currentPriceData.created_at).toLocaleTimeString('en-US', {
+    // Format IST time from slot_time
+    let timeString = new Date(currentPriceData.slot_time).toLocaleTimeString('en-US', {
       hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
     });
 
@@ -109,7 +119,7 @@ export async function GET() {
       ui: { gridStatusName, zoneColor, demandLevel, subtitle }
     });
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("API error:", err);
     return NextResponse.json({
       price: 0,
@@ -118,6 +128,6 @@ export async function GET() {
       message: "Internal Server Error",
       trend: "stable",
       ui: { gridStatusName: "Error", zoneColor: "gray", demandLevel: "Error", subtitle: "System failure" }
-    }, { status: 200 }); // Safe fallback
+    }, { status: 200 });
   }
 }

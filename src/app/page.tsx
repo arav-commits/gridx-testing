@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Navbar } from "@/components/layout/Navbar";
 import { ClusterStatusBar } from "@/components/layout/ClusterStatusBar";
 import { GridStatusPanel } from "@/components/dashboard/GridStatusPanel";
@@ -21,7 +21,10 @@ type GridUiData = {
 
 type TimelineSlot = {
   label: string;
-  price: number;
+  slotIndex: number;
+  price: number | null;
+  pending: boolean;
+  missing?: boolean;
   isCurrent: boolean;
   isLowest: boolean;
   isPeakDay: boolean;
@@ -47,8 +50,6 @@ export default function Home() {
   // Deep Insights panel
   const [insightOpen, setInsightOpen] = useState(false);
   const [timeline, setTimeline] = useState<TimelineSlot[]>([]);
-  // Track last fetched time to avoid redundant calls
-  const lastFetchBlock = useRef<number>(-1);
 
   /**
    * Fetch live price + grid UI from Supabase via our API route.
@@ -99,34 +100,39 @@ export default function Home() {
       const res = await fetch('/api/prices/history', { cache: 'no-store' });
       if (!res.ok) return;
       const json = await res.json();
-      const slots: { label: string; price: number }[] = json.slots || [];
+      const apiSlots: { label: string; slotIndex: number; price: number | null; pending: boolean; missing?: boolean }[] = json.slots || [];
+      const currentSlotIndex: number = json.currentSlotIndex ?? -1;
 
-      if (slots.length === 0) {
+      if (apiSlots.length === 0) {
         setTimeline([]);
         return;
       }
 
-      // Find current IST slot for highlighting
-      const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-      const currentMins = now.getHours() * 60 + now.getMinutes();
-      const currentSlotStart = currentMins - (currentMins % 30);
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const currentLabel = `${pad(Math.floor(currentSlotStart / 60))}:${pad(currentSlotStart % 60)}`;
-
-      // Min / max for tagging
-      const prices = slots.map(s => s.price);
-      const minP = Math.min(...prices);
-      const maxP = Math.max(...prices);
+      // Min / max for LOWEST TODAY / PEAK TODAY badges — only on non-pending slots with real prices
+      const realPrices = apiSlots.filter(s => !s.pending && s.price !== null).map(s => s.price as number);
+      const minP = realPrices.length > 0 ? Math.min(...realPrices) : Infinity;
+      const maxP = realPrices.length > 0 ? Math.max(...realPrices) : -Infinity;
       let lowestTagged = false;
       let peakTagged = false;
 
-      const mapped: TimelineSlot[] = slots.map(s => {
-        const isCurrent = s.label.startsWith(currentLabel);
+      const mapped: TimelineSlot[] = apiSlots.map(s => {
+        const isCurrent = s.slotIndex === currentSlotIndex;
         let isLowest = false;
         let isPeakDay = false;
-        if (!lowestTagged && s.price === minP) { isLowest = true; lowestTagged = true; }
-        if (!peakTagged && s.price === maxP) { isPeakDay = true; peakTagged = true; }
-        return { label: s.label, price: s.price, isCurrent, isLowest, isPeakDay };
+        if (!s.pending && s.price !== null) {
+          if (!lowestTagged && s.price === minP) { isLowest = true; lowestTagged = true; }
+          if (!peakTagged && s.price === maxP) { isPeakDay = true; peakTagged = true; }
+        }
+        return {
+          label: s.label,
+          slotIndex: s.slotIndex,
+          price: s.price,
+          pending: s.pending,
+          missing: s.missing,
+          isCurrent,
+          isLowest,
+          isPeakDay,
+        };
       });
 
       setTimeline(mapped);
@@ -243,36 +249,54 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Timeline rows */}
+            {/* Timeline rows — always 48 slots */}
             {timeline.length === 0 ? (
               <div className="text-center py-10 text-slate-400 text-sm">
-                No price data available yet for today. The Python worker inserts a new row every 30 minutes.
+                Loading timeline data...
               </div>
             ) : (
-              <div className="flex flex-col gap-1 max-h-96 overflow-y-auto pr-1">
+              <div className="flex flex-col gap-1 max-h-[28rem] overflow-y-auto pr-1">
                 {timeline.map((slot) => {
-                  const cat = classifySlot(slot.price);
+                  const isPending = slot.pending;
+                  const isMissing = slot.missing && !isPending;
+                  const hasPrice = !isPending && !isMissing && slot.price !== null;
+                  const cat = hasPrice ? classifySlot(slot.price as number) : null;
+
                   return (
                     <div
-                      key={slot.label}
+                      key={slot.slotIndex}
                       className={`flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm border transition-colors ${
                         slot.isCurrent
                           ? "bg-[color:var(--color-azure)]/10 border-[color:var(--color-azure)]/20"
-                          : "border-transparent hover:border-[color:var(--glass-border)]"
+                          : isPending
+                            ? "opacity-50 border-transparent"
+                            : "border-transparent hover:border-[color:var(--glass-border)]"
                       }`}
                     >
-                      {/* Time slot */}
+                      {/* Time slot label */}
                       <span className="text-xs font-bold tabular-nums text-slate-400 w-24 shrink-0">
                         {slot.label}
                       </span>
 
-                      {/* Price */}
-                      <span className="font-bold text-[color:var(--foreground)] w-28 shrink-0">
-                        ₹{slot.price.toFixed(1)}/unit
-                      </span>
-                      <span className="text-xs font-bold shrink-0">
-                        {cat.dot} {cat.label}
-                      </span>
+                      {/* Price or Coming Soon */}
+                      {hasPrice ? (
+                        <>
+                          <span className="font-bold text-[color:var(--foreground)] w-28 shrink-0">
+                            ₹{(slot.price as number).toFixed(1)}/unit
+                          </span>
+                          <span className="text-xs font-bold shrink-0">
+                            {cat!.dot} {cat!.label}
+                          </span>
+                        </>
+                      ) : isMissing ? (
+                        <span className="text-xs font-bold text-amber-500 w-28 shrink-0">
+                          ⚠ No Data
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-slate-400 italic w-28 shrink-0">
+                          Coming Soon
+                        </span>
+                      )}
 
                       {/* Tags */}
                       <div className="flex gap-1.5 ml-auto">
