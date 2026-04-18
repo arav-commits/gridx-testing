@@ -76,29 +76,44 @@ def push_price():
     # We round created_at to the current slot mark (00 or 30) for consistency
     slot_minute = 30 if now_ist.minute >= 30 else 0
     created_at = now_ist.replace(minute=slot_minute, second=0, microsecond=0)
+    created_at_iso = created_at.astimezone(datetime.UTC).isoformat()
+
+    # ── DEDUP GUARD: check if this slot already has a row ──
+    try:
+        existing = (
+            supabase.table("dynamic_prices")
+            .select("id")
+            .eq("created_at", created_at_iso)
+            .limit(1)
+            .execute()
+        )
+        if existing.data and len(existing.data) > 0:
+            print(f"ℹ️  [{now_ist.strftime('%I:%M %p')}] Slot {created_at_iso} already has data. Skipping.")
+            return
+    except Exception as e:
+        print(f"⚠️  Dedup check failed ({str(e)[:80]}), proceeding with insert...")
 
     data = {
         "price": float(price),
         "demand": float(row["demand"]),
         "supply": float(row["supply"]),
-        "created_at": created_at.astimezone(datetime.UTC).isoformat()
+        "created_at": created_at_iso
     }
 
     # Robust insertion with retry logic
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # Ensure no duplication in the same exact slot timestamp
             response = supabase.table("dynamic_prices").insert(data).execute()
             print(f"✅ [{now_ist.strftime('%I:%M %p')}] Inserted: {data}")
             return
         except Exception as e:
             err_str = str(e)
-            print(f"⚠️ Attempt {attempt + 1} failed: {err_str[:100]}...")
+            print(f"⚠️  Attempt {attempt + 1} failed: {err_str[:100]}...")
             if "duplicate key value" in err_str.lower() or "23505" in err_str:
-                print("ℹ️ Data for this slot already exists. Skipping.")
+                print("ℹ️  Duplicate detected by DB constraint. Skipping.")
                 return
-            time.sleep(10) # Wait 10s before retry
+            time.sleep(10)
 
     print("❌ Critical: Failed to push price after max retries")
 

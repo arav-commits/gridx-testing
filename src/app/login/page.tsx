@@ -86,10 +86,10 @@ export default function LoginPage() {
     if (foundCluster) {
       setLoading(true);
       
-      // Save profile implicitly
+      // Save profile to Supabase users table
       const { data: userSession } = await supabase.auth.getSession();
       if (userSession.session?.user) {
-        await supabase.from('users').upsert({
+        const { error: upsertError } = await supabase.from('users').upsert({
           id: userSession.session.user.id,
           name: formData.name,
           email: formData.email,
@@ -98,6 +98,11 @@ export default function LoginPage() {
           city: formData.city,
           cluster_id: foundCluster.id
         });
+        if (upsertError) {
+          console.error("[GridX] Failed to save user profile to Supabase:", upsertError);
+          // Don't block login — localStorage still works as fallback.
+          // But this means the users table won't be populated until RLS is fixed.
+        }
       }
 
       login({
