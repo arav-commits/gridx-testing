@@ -1,4 +1,3 @@
-# main.py
 
 from price_data import compute_price_by_index, DATA
 

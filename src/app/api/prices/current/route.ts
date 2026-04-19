@@ -3,15 +3,10 @@ import { supabase } from '@/lib/supabaseClient';
 
 export const revalidate = 0; // Disable caching
 
-/**
- * GET /api/prices/current
- *
- * Returns the latest price from `price_logs` along with grid health,
- * trend, and UI state for the dashboard panels.
- */
+
 export async function GET() {
   try {
-    // ── Compute today's date in IST ───────────────────────────────────────
+
     const now = new Date();
     const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const year = istNow.getFullYear();
@@ -19,7 +14,6 @@ export async function GET() {
     const day = String(istNow.getDate()).padStart(2, '0');
     const todayIST = `${year}-${month}-${day}`;
 
-    // ── Fetch latest 2 slots for today (for trend comparison) ─────────────
     const { data: prices, error } = await supabase
       .from('price_logs')
       .select('slot_index, price, slot_time')
@@ -48,11 +42,10 @@ export async function GET() {
     const currentPriceData = prices[0];
     const currentPrice = Number(currentPriceData.price);
 
-    // Check if data is stale (slot_time older than 45 minutes from now)
     const slotTimeMs = new Date(currentPriceData.slot_time).getTime();
     const isStale = Date.now() - slotTimeMs > 45 * 60 * 1000;
 
-    // Analyze trend (comparison between newest and previous slot)
+
     let isTrendRising = false;
     let trendLabel = "stable";
 
@@ -66,7 +59,7 @@ export async function GET() {
       }
     }
 
-    // Determine grid zone
+
     let gridStatusName = "Grid Stable";
     let zoneColor = "green";
     let demandLevel = "Low Demand";
@@ -101,7 +94,7 @@ export async function GET() {
       subtitle = "⚠ Waiting for real-time update...";
     }
 
-    // Format IST time from slot_time
+
     let timeString = new Date(currentPriceData.slot_time).toLocaleTimeString('en-US', {
       hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata'
     });

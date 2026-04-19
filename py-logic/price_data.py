@@ -1,4 +1,3 @@
-# price_data.py
 
 import math
 

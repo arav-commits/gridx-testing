@@ -12,7 +12,7 @@ interface GridStatusPanelProps {
 }
 
 export function GridStatusPanel({ ui }: GridStatusPanelProps) {
-  // Determine color themes based on zoneColor
+
   const isGreen = ui?.zoneColor === "green";
   const isRed = ui?.zoneColor === "red";
   const isYellow = ui?.zoneColor === "yellow";

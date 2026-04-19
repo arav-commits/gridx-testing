@@ -10,7 +10,7 @@ import { Footer } from "@/components/layout/Footer";
 import { BsChevronUp } from "react-icons/bs";
 import { getCurrentPricingData } from "@/lib/pricing";
 
-// ── Types ────────────────────────────────────────────────────────────────────
+
 type GridUiData = {
   gridStatusName: string;
   zoneColor: string;
@@ -31,7 +31,7 @@ type TimelineSlot = {
   isPeakDay: boolean;
 };
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 function classifySlot(price: number): { label: string; dot: string } {
   if (price <= 6) return { label: "Low",      dot: "🟢" };
@@ -39,7 +39,7 @@ function classifySlot(price: number): { label: string; dot: string } {
   return             { label: "High",     dot: "🔴" };
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+
 
 export default function Home() {
   // Live price — from Supabase API, falling back to local computation
@@ -52,10 +52,7 @@ export default function Home() {
   const [insightOpen, setInsightOpen] = useState(false);
   const [timeline, setTimeline] = useState<TimelineSlot[]>([]);
 
-  /**
-   * Fetch live price + grid UI from Supabase via our API route.
-   * This is the PRIMARY data source. If it fails, fall back to local computation.
-   */
+  
   const fetchLiveData = useCallback(async () => {
     try {
       const res = await fetch('/api/prices/current', { cache: 'no-store' });
@@ -79,7 +76,7 @@ export default function Home() {
       console.warn("[GridX] API unreachable, using local fallback:", err);
     }
 
-    // FALLBACK: compute locally if API is down or returns empty data
+
     const local = getCurrentPricingData();
     setLivePrice(local.price);
     setLivePriceTime(local.last_updated);
@@ -93,9 +90,7 @@ export default function Home() {
     setLoading(false);
   }, []);
 
-  /**
-   * Fetch today's price history from Supabase for "View Deep Insights".
-   */
+  
   const fetchTimeline = useCallback(async () => {
     try {
       const res = await fetch('/api/prices/history', { cache: 'no-store' });
@@ -109,7 +104,6 @@ export default function Home() {
         return;
       }
 
-      // Min / max for LOWEST TODAY / PEAK TODAY badges — only on non-pending slots with real prices
       const realPrices = apiSlots.filter(s => !s.pending && s.price !== null).map(s => s.price as number);
       const minP = realPrices.length > 0 ? Math.min(...realPrices) : Infinity;
       const maxP = realPrices.length > 0 ? Math.max(...realPrices) : -Infinity;
@@ -143,15 +137,12 @@ export default function Home() {
     }
   }, []);
 
-  // ── Polling loop ───────────────────────────────────────────────────────────
   useEffect(() => {
     // Initial fetch
     fetchLiveData();
     fetchTimeline();
 
-    // Refresh price every 30 seconds (balances freshness vs load)
     const priceInterval = setInterval(fetchLiveData, 30_000);
-    // Refresh timeline every 2 minutes
     const timelineInterval = setInterval(fetchTimeline, 120_000);
 
     return () => {
@@ -160,7 +151,6 @@ export default function Home() {
     };
   }, [fetchLiveData, fetchTimeline]);
 
-  // ── Render ─────────────────────────────────────────────────────────────────
 
   if (loading || livePrice === null) {
     return (
@@ -213,7 +203,7 @@ export default function Home() {
           <button
             onClick={() => {
               setInsightOpen((prev) => !prev);
-              if (!insightOpen) fetchTimeline(); // refresh when opening
+              if (!insightOpen) fetchTimeline();
             }}
             className="group flex items-center gap-3 bg-[color:var(--glass-bg)] hover:bg-white/60 dark:hover:bg-slate-800/60 transition-all backdrop-blur-md border border-[color:var(--glass-border)] shadow-md rounded-full px-8 py-3.5 hover:scale-105 active:scale-95"
           >

@@ -27,7 +27,6 @@ export function Navbar() {
         </span>
       </Link>
 
-      {/* Center Navigation */}
       <div className="hidden md:flex items-center bg-white/30 dark:bg-slate-800/30 backdrop-blur-sm px-1 py-1 rounded-full border border-white/40 dark:border-slate-700/40">
         <Link 
           href="/" 
@@ -51,9 +50,8 @@ export function Navbar() {
         </Link>
       </div>
 
-      {/* Right Actions */}
+
       <div className="flex items-center gap-3">
-        {/* Theme Toggle */}
         <button 
           onClick={toggleTheme}
           className="w-10 h-10 flex items-center justify-center rounded-full bg-white/40 dark:bg-slate-800/40 border border-white/60 dark:border-slate-700/60 hover:bg-white/60 dark:hover:bg-slate-700/60 transition-all text-slate-500 dark:text-slate-400 shadow-sm"
@@ -61,7 +59,6 @@ export function Navbar() {
           {theme === "light" ? <BsMoonFill size={16} /> : <BsSunFill size={18} className="text-yellow-400" />}
         </button>
 
-        {/* Profile Dropdown */}
         <div className="relative">
           <button 
             onClick={() => setShowProfile(!showProfile)}

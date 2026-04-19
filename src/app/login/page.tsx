@@ -87,8 +87,6 @@ export default function LoginPage() {
     if (foundCluster) {
       setLoading(true);
       
-      // Note: Database persistence removed per user request to bypass recurring issues.
-      // Profile data is now only stored in local AuthContext.
 
 
       login({

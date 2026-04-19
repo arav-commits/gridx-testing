@@ -1,11 +1,3 @@
-# worker.py — GridX Price Engine
-# Pushes computed electricity prices to Supabase `price_logs` every 30 minutes.
-# ────────────────────────────────────────────────────────────────────────────────
-# Design:
-#   - Wall-clock-aligned: wakes at exactly HH:00 and HH:30 IST
-#   - Idempotent: uses UPSERT on (slot_date, slot_index) — safe for restarts
-#   - Backfills: on startup, fills any missing past slots for today
-# ────────────────────────────────────────────────────────────────────────────────
 
 import os
 import time
@@ -13,7 +5,6 @@ import datetime
 import pytz
 from dotenv import load_dotenv
 
-# Load env vars (try root .env.local first, then standard .env)
 load_dotenv("../.env.local")
 load_dotenv("../.env")
 load_dotenv(".env")
@@ -21,7 +12,6 @@ load_dotenv(".env")
 from price_data import compute_price_by_index, DATA
 from supabase import create_client
 
-# ── Configuration ─────────────────────────────────────────────────────────────
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL") or os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
@@ -33,7 +23,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 IST = pytz.timezone("Asia/Kolkata")
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def now_ist() -> datetime.datetime:
     """Current time in IST, timezone-aware."""
@@ -87,8 +76,6 @@ def slot_to_utc_timestamp(date: datetime.date, index: int) -> str:
     return utc_dt.isoformat()
 
 
-# ── Core: Upsert a single slot ───────────────────────────────────────────────
-
 def upsert_slot(date: datetime.date, index: int) -> bool:
     """
     Compute and upsert a price for the given (date, slot_index).
@@ -125,8 +112,6 @@ def upsert_slot(date: datetime.date, index: int) -> bool:
     return False
 
 
-# ── Backfill: fill all past slots for today on startup ────────────────────────
-
 def backfill_today():
     """
     On startup, ensure all past slots for today exist in the DB.
@@ -138,7 +123,7 @@ def backfill_today():
 
     print(f"📋 Backfilling today ({today}) — slots 0 to {current_index}...")
 
-    # Fetch which slots already exist for today
+
     try:
         existing = (
             supabase.table("price_logs")
@@ -169,7 +154,7 @@ def backfill_today():
         print(f"  📊 Backfilled {filled} missing slot(s).")
 
 
-# ── Connection test ───────────────────────────────────────────────────────────
+
 
 def test_connection():
     try:
@@ -181,7 +166,6 @@ def test_connection():
         exit(1)
 
 
-# ── Main loop: wall-clock-aligned execution ───────────────────────────────────
 
 def wait_for_next_slot():
     """
@@ -196,7 +180,7 @@ def wait_for_next_slot():
         remaining = (target - now_ist()).total_seconds()
         if remaining <= 0:
             break
-        # Sleep in smaller chunks to stay aligned
+
         time.sleep(min(remaining, 1.0))
 
 
@@ -216,16 +200,13 @@ def run_loop():
             else:
                 print(f"❌ [{current.strftime('%I:%M:%S %p')}] Failed to push slot {index}")
 
-            # Wait for next slot boundary
             wait_for_next_slot()
 
         except Exception as e:
             print(f"❌ Loop error: {e}")
-            # On error, sleep 30 seconds then retry (avoids rapid crash loops)
+
             time.sleep(30)
 
-
-# ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("🚀 GridX Price Worker — Starting...")

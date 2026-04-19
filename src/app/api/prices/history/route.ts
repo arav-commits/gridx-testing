@@ -3,8 +3,6 @@ import { supabase } from '@/lib/supabaseClient';
 
 export const revalidate = 0;
 
-// ── Local pricing data — mirrors price_data.py exactly ─────────────────────
-// Used as fallback when the Python worker hasn't populated price_logs yet.
 const PRICING_DATA = [
   { time: "12:00 AM", demand: 9.6, supply: 8.6, pbase: 5.12 },
   { time: "12:30 AM", demand: 9.4, supply: 9.0, pbase: 4.76 },
@@ -56,11 +54,7 @@ const PRICING_DATA = [
   { time: "11:30 PM", demand: 10.6, supply: 8.2, pbase: 5.73 },
 ];
 
-/**
- * Compute price from local data — mirrors price_data.py formula exactly:
- *   price = pbase + (demand / supply) + 0.5
- *   clamped to [0, 15]
- */
+
 function computeLocalPrice(index: number): { price: number; demand: number; supply: number } {
   const row = PRICING_DATA[index];
   const d = row.demand;
@@ -77,28 +71,20 @@ function computeLocalPrice(index: number): { price: number; demand: number; supp
   return { price, demand: d, supply: s };
 }
 
-/**
- * GET /api/prices/history
- *
- * Returns the FULL 48-slot daily timeline for "View Deep Insights".
- * - Past slots → actual price from `price_logs` (falls back to local computation)
- * - Future slots → `pending: true` (rendered as "Coming Soon" in UI)
- * - Always returns exactly 48 entries, regardless of how many DB rows exist.
- */
+
 export async function GET() {
   try {
-    // ── Compute today's date in IST ───────────────────────────────────────
+
     const now = new Date();
     const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
     const year = istNow.getFullYear();
     const month = String(istNow.getMonth() + 1).padStart(2, '0');
     const day = String(istNow.getDate()).padStart(2, '0');
-    const todayIST = `${year}-${month}-${day}`; // e.g. "2026-04-19"
+    const todayIST = `${year}-${month}-${day}`; 
 
-    // Current slot index in IST
     const currentSlotIndex = istNow.getHours() * 2 + (istNow.getMinutes() >= 30 ? 1 : 0);
 
-    // ── Fetch all rows for today from price_logs ──────────────────────────
+
     let slotMap = new Map<number, { price: number; demand: number; supply: number }>();
 
     try {
@@ -125,7 +111,6 @@ export async function GET() {
       console.warn('Supabase unreachable for history, using full local fallback:', dbErr);
     }
 
-    // ── Generate full 48-slot grid ────────────────────────────────────────
     const pad = (n: number) => String(n).padStart(2, '0');
     const slots = [];
 
@@ -139,7 +124,6 @@ export async function GET() {
       const isFuture = i > currentSlotIndex;
 
       if (isFuture) {
-        // Future slot — Coming Soon
         slots.push({
           label,
           slotIndex: i,
@@ -149,7 +133,6 @@ export async function GET() {
           pending: true,
         });
       } else {
-        // Past or current slot — use DB data if available, else compute locally
         const dbRow = slotMap.get(i);
         if (dbRow) {
           slots.push({
@@ -161,7 +144,6 @@ export async function GET() {
             pending: false,
           });
         } else {
-          // No DB data — compute from local formula (same as Python worker)
           const local = computeLocalPrice(i);
           slots.push({
             label,
@@ -170,7 +152,7 @@ export async function GET() {
             demand: local.demand,
             supply: local.supply,
             pending: false,
-            fallback: true, // flag so UI can optionally note this is computed locally
+            fallback: true, 
           });
         }
       }

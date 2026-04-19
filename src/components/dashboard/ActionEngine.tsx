@@ -14,24 +14,19 @@ import {
 } from "react-icons/bs";
 import { getISTTime } from "@/utils/time";
 
-// ── Pricing constants ──────────────────────────────────────────────────────────
-/** Standard peak baseline (₹/unit). Reference point for the savings formula. */
+
 const STANDARD_PEAK = 10;
 
-/**
- * Appliance energy assumptions (kWh) — fixed per spec.
- * Refrigerator value reflects compressor optimization impact, not full draw.
- */
+
 const APPLIANCE_USAGE: Record<string, number> = {
-  washing_machine: 2,    // kWh
-  ac:              1.5,  // kWh (1 hr)
-  ev_charging:     8,    // kWh
-  dishwasher:      1.2,  // kWh
-  tv:              0.2,  // kWh
-  refrigerator:    0.8,  // kWh (optimization-based)
+  washing_machine: 2,    
+  ac:              1.5,  
+  ev_charging:     8,    
+  dishwasher:      1.2,  
+  tv:              0.2,  
+  refrigerator:    0.8,  
 };
 
-/** Human-readable appliance names used as card titles. */
 const APPLIANCE_NAMES: Record<string, string> = {
   washing_machine: "Washing Machine",
   ac:              "Air Conditioner",
@@ -49,20 +44,7 @@ function getPriceContext(price: number): PriceContext {
   return "MODERATE";
 }
 
-/**
- * Dynamic Impact Formula:
- *
- *   price < ₹10  →  savings  = (10 − price) × usage    →  "Save ₹X"
- *                   Run now: you pay less than the ₹10 peak baseline.
- *
- *   price > ₹10  →  avoidable = (price − 10) × usage   →  "Avoid ₹X extra"
- *                   When live price exceeds ₹10, it becomes the new reference.
- *                   Delaying saves you the ₹X premium above the standard cap.
- *
- *   price = ₹10  →  "At Baseline ₹0" (no advantage either way)
- *
- * Values are always rounded. No clamping — the two branches handle sign naturally.
- */
+
 function buildImpactDisplay(price: number, usageKwh: number) {
   if (price < STANDARD_PEAK) {
     const savings = Math.round((STANDARD_PEAK - price) * usageKwh);
@@ -74,7 +56,6 @@ function buildImpactDisplay(price: number, usageKwh: number) {
     };
   }
   if (price > STANDARD_PEAK) {
-    // Live price becomes the elevated reference above the ₹10 cap
     const avoidable = Math.round((price - STANDARD_PEAK) * usageKwh);
     return {
       savingText:   "Avoid",
@@ -91,7 +72,7 @@ function buildImpactDisplay(price: number, usageKwh: number) {
   };
 }
 
-// ── Per-appliance messaging ────────────────────────────────────────────────────
+
 const MESSAGING: Record<
   string,
   Record<PriceContext, { contextLabel: string; action: string }>
@@ -128,7 +109,6 @@ const MESSAGING: Record<
   },
 };
 
-// ── Static card identity (structure + icons only) ──────────────────────────────
 interface CardConfig {
   id: number;
   appliance: string;
@@ -175,10 +155,7 @@ const CARD_CONFIGS: CardConfig[] = [
   },
 ];
 
-/**
- * Returns the current IST 30-min block label, e.g. "18:00 – 18:30".
- * Uses en-dash so Action3DCard's isTimeExpired parser returns false safely.
- */
+
 function getCurrentWindowLabel(): string {
   const now = getISTTime();
   const h = now.getHours();
@@ -191,22 +168,14 @@ function getCurrentWindowLabel(): string {
   return `${pad(h)}:${pad(blockStart)} – ${pad(endHour)}:${pad(endMin)}`;
 }
 
-/**
- * Derives all dynamic card content from the live current_price.
- *   - Title    → appliance name (not a context label)
- *   - Subtitle → context label + live price insight + recommended action
- *   - Impact   → dynamic savings formula (see buildImpactDisplay)
- */
 function buildCardContent(config: CardConfig, currentPrice: number, timeWindow: string) {
   const { appliance } = config;
   const usage    = APPLIANCE_USAGE[appliance];
   const context  = getPriceContext(currentPrice);
   const msg      = MESSAGING[appliance][context];
 
-  // Title = appliance name (e.g. "Washing Machine", "Television")
   const title = APPLIANCE_NAMES[appliance];
 
-  // Subtitle: context label + live price insight + action
   const pricePct = Math.round(Math.abs((STANDARD_PEAK - currentPrice) / STANDARD_PEAK) * 100);
   const priceNote =
     context === "LOW_PRICE"
@@ -218,7 +187,6 @@ function buildCardContent(config: CardConfig, currentPrice: number, timeWindow: 
   const description = `${msg.contextLabel} · ₹${currentPrice.toFixed(1)}/unit ${priceNote}. ${msg.action}.`;
 
   const impact   = buildImpactDisplay(currentPrice, usage);
-  // Progress = price pressure indicator (0–100 relative to a ceiling of ₹12)
   const progress = Math.min(100, Math.round((currentPrice / 12) * 100));
 
   return {
@@ -232,9 +200,7 @@ function buildCardContent(config: CardConfig, currentPrice: number, timeWindow: 
   };
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
 interface ActionEngineProps {
-  /** Live electricity price (₹/unit) from the Python pricing engine. */
   currentPrice: number;
 }
 

@@ -1,4 +1,4 @@
-# check_db.py — quick diagnostic script for price_logs
+
 import os
 from dotenv import load_dotenv
 load_dotenv("../.env.local")
