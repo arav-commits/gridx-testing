@@ -81,21 +81,27 @@ function parseTimeToMinutes(timeStr: string): number {
   return hours * 60 + minutes;
 }
 
-
+/**
+ * Local fallback price computation — mirrors the Python formula exactly:
+ *   price = pbase + (demand / supply) + 0.5
+ *   clamped to [0, 15]
+ *
+ * Used only when the Supabase API is unreachable.
+ */
 export function getCurrentPricingData(): PriceData {
   const now = getISTTime();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
-
+  // Find the nearest 30 minute interval backwards (e.g. 14:15 -> 14:00)
   const intervalMinutes = currentMinutes - (currentMinutes % 30);
 
-
+  // Find the matching row in data
   let matchedRow = PRICING_DATA.find((row) => parseTimeToMinutes(row.time) === intervalMinutes);
 
   let offPeak = false;
   if (!matchedRow) {
     offPeak = true;
-
+    // Fallback to the 12:00 AM row (first entry)
     matchedRow = PRICING_DATA[0];
   }
 
@@ -103,7 +109,7 @@ export function getCurrentPricingData(): PriceData {
   const supply = matchedRow.supply;
   const pbase = matchedRow.pbase;
 
-
+  // Compute price — same formula as price_data.py
   let price = pbase;
   if (supply !== 0) {
     const dynamicImpact = demand / supply;
@@ -112,6 +118,9 @@ export function getCurrentPricingData(): PriceData {
   price = Math.min(Math.max(price, 0), 15);
   price = Math.round(price * 100) / 100;
 
+  // Compute Status
+  let status: "surplus" | "shortage" | "balanced" = "balanced";
+  let message = "System is stable.";
 
   if (price <= 5) {
     status = "surplus";
