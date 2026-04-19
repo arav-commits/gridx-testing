@@ -6,6 +6,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { useAuth } from "@/context/AuthContext";
 import { CLUSTERS, Cluster } from "@/data/mockData";
 import { supabase } from "@/lib/supabaseClient";
+import { saveUserProfile } from "./actions";
 
 export default function LoginPage() {
   const [step, setStep] = useState(1);
@@ -89,7 +90,7 @@ export default function LoginPage() {
       // Save profile to Supabase users table
       const { data: userSession } = await supabase.auth.getSession();
       if (userSession.session?.user) {
-        const { error: upsertError } = await supabase.from('users').upsert({
+        const result = await saveUserProfile({
           id: userSession.session.user.id,
           name: formData.name,
           phone: formData.phone,
@@ -97,10 +98,9 @@ export default function LoginPage() {
           city: formData.city,
           cluster_id: parseInt(foundCluster.id.replace(/\D/g, ''), 10) || 1
         });
-        if (upsertError) {
-          console.error("[GridX] Failed to save user profile to Supabase:", upsertError);
-          // Don't block login — localStorage still works as fallback.
-          // But this means the users table won't be populated until RLS is fixed.
+        
+        if (!result.success) {
+          console.error("[GridX] Failed to save user profile to Supabase via Action:", result.error);
         }
       }
 
